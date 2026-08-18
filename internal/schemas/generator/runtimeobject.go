@@ -35,13 +35,17 @@ const (
 	roRuntimeAlias  = "k8sruntime"
 	roRuntimeImport = "k8s.io/apimachinery/pkg/runtime"
 	roSchemaImport  = "k8s.io/apimachinery/pkg/runtime/schema"
+	roMetaAlias     = "k8smeta"
+	roMetaImport    = "k8s.io/apimachinery/pkg/apis/meta/v1"
+	roTypesAlias    = "k8stypes"
+	roTypesImport   = "k8s.io/apimachinery/pkg/types"
 )
 
 // roScalarSelectorTypes are k8s types referenced via a package selector that are
 // aliases to non-struct types (time.Time, maps) and therefore have no
 // DeepCopyInto method; they must be copied by value, not deep-copied.
 var roScalarSelectorTypes = map[string]bool{ //nolint:gochecknoglobals // Lookup table.
-	"Time":         true, // metav1.Time / MicroTime alias time.Time
+	"Time":         true, // k8smeta.Time / MicroTime alias time.Time
 	"MicroTime":    true,
 	"FieldsV1":     true, // alias for map[string]interface{}
 	"RawExtension": true, // alias for a JSON-ish type, no DeepCopyInto
@@ -74,6 +78,14 @@ func addRuntimeObjects(code string) (string, bool, error) {
 	structs := collectStructTypes(f)
 	aliases := collectCollectionAliases(f)
 
+	// Identify metadata types used by root structs.
+	metadataTypes := map[string]bool{"ObjectMeta": true}
+	for name, st := range structs {
+		if isRootStruct(st) && !hasField(st, "Items") && name != "Status" {
+			metadataTypes[fieldElemTypeName(st, "Metadata")] = true
+		}
+	}
+
 	// Deterministic order: walk declarations in source order.
 	var b strings.Builder
 	hasRoots := false
@@ -96,6 +108,11 @@ func addRuntimeObjects(code string) (string, bool, error) {
 			if isRootStruct(st) {
 				hasRoots = true
 				writeRuntimeObject(&b, name, st)
+				if !hasField(st, "Items") && name != "Status" {
+					writeMetav1Object(&b, name, st, true, structs)
+				}
+			} else if metadataTypes[name] {
+				writeMetav1Object(&b, name, st, false, structs)
 			}
 		}
 	}
@@ -112,6 +129,8 @@ func addRuntimeObjects(code string) (string, bool, error) {
 		combined, err = ensureImports(combined, []importSpec{
 			{alias: roRuntimeAlias, path: roRuntimeImport},
 			{path: roSchemaImport},
+			{alias: roMetaAlias, path: roMetaImport},
+			{alias: roTypesAlias, path: roTypesImport},
 		})
 		if err != nil {
 			return "", false, err
@@ -126,8 +145,8 @@ func addRuntimeObjects(code string) (string, bool, error) {
 }
 
 // collectStructTypes returns the set of struct type names declared in the file.
-func collectStructTypes(f *ast.File) map[string]bool {
-	out := map[string]bool{}
+func collectStructTypes(f *ast.File) map[string]*ast.StructType {
+	out := map[string]*ast.StructType{}
 	for _, decl := range f.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.TYPE {
@@ -138,8 +157,8 @@ func collectStructTypes(f *ast.File) map[string]bool {
 			if !ok || ts.Assign.IsValid() {
 				continue
 			}
-			if _, ok := ts.Type.(*ast.StructType); ok {
-				out[ts.Name.Name] = true
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				out[ts.Name.Name] = st
 			}
 		}
 	}
@@ -204,10 +223,10 @@ const (
 
 // classifyElem classifies the element type expr (the type with any leading
 // pointer/slice/map already stripped) as scalar or struct.
-func classifyElem(e ast.Expr, structs map[string]bool) fieldKind {
+func classifyElem(e ast.Expr, structs map[string]*ast.StructType) fieldKind {
 	switch x := e.(type) {
 	case *ast.Ident:
-		if structs[x.Name] {
+		if structs[x.Name] != nil {
 			return fkStruct
 		}
 		// Basic types and named scalar (enum) types copy by value.
@@ -229,7 +248,7 @@ func classifyElem(e ast.Expr, structs map[string]bool) fieldKind {
 }
 
 // writeDeepCopy appends DeepCopyInto and DeepCopy methods for the struct.
-func writeDeepCopy(b *strings.Builder, fset *token.FileSet, name string, st *ast.StructType, structs map[string]bool, aliases map[string]ast.Expr) {
+func writeDeepCopy(b *strings.Builder, fset *token.FileSet, name string, st *ast.StructType, structs map[string]*ast.StructType, aliases map[string]ast.Expr) {
 	fmt.Fprintf(b, "\n// DeepCopyInto copies the receiver into out.\n")
 	fmt.Fprintf(b, "func (in *%s) DeepCopyInto(out *%s) {\n", name, name)
 	b.WriteString("\t*out = *in\n")
@@ -254,7 +273,7 @@ func writeDeepCopy(b *strings.Builder, fset *token.FileSet, name string, st *ast
 // fields are pointers; the leading pointer is handled here, then the pointee
 // (scalar, struct, slice or map) is copied appropriately. Named aliases to a
 // map or slice are deep-copied like their literal form.
-func writeFieldCopy(b *strings.Builder, fset *token.FileSet, field string, typ ast.Expr, structs map[string]bool, aliases map[string]ast.Expr) {
+func writeFieldCopy(b *strings.Builder, fset *token.FileSet, field string, typ ast.Expr, structs map[string]*ast.StructType, aliases map[string]ast.Expr) {
 	star, ok := typ.(*ast.StarExpr)
 	if !ok {
 		// Non-pointer fields are copied by the `*out = *in` shallow assignment.
@@ -294,7 +313,7 @@ func writeFieldCopy(b *strings.Builder, fset *token.FileSet, field string, typ a
 
 // writeSliceCopy handles a *[]Elem field. declType is the type to allocate (the
 // literal slice type or a named alias). On entry in/out are *(*declType).
-func writeSliceCopy(b *strings.Builder, declType string, arr *ast.ArrayType, structs map[string]bool) {
+func writeSliceCopy(b *strings.Builder, declType string, arr *ast.ArrayType, structs map[string]*ast.StructType) {
 	fmt.Fprintf(b, "\t\t*out = new(%s)\n", declType)
 	b.WriteString("\t\tif *in != nil {\n")
 	b.WriteString("\t\t\tin, out := *in, *out\n")
@@ -311,7 +330,7 @@ func writeSliceCopy(b *strings.Builder, declType string, arr *ast.ArrayType, str
 
 // writeMapCopy handles a *map[K]V field. declType is the type to allocate (the
 // literal map type or a named alias). On entry in/out are *(*declType).
-func writeMapCopy(b *strings.Builder, fset *token.FileSet, declType string, m *ast.MapType, structs map[string]bool) {
+func writeMapCopy(b *strings.Builder, fset *token.FileSet, declType string, m *ast.MapType, structs map[string]*ast.StructType) {
 	valType := renderType(fset, m.Value)
 	fmt.Fprintf(b, "\t\t*out = new(%s)\n", declType)
 	b.WriteString("\t\tif *in != nil {\n")
@@ -370,6 +389,145 @@ func writeRuntimeObject(b *strings.Builder, name string, st *ast.StructType) {
 	b.WriteString("\t\treturn nil\n\t})\n}\n")
 }
 
+// writeMetav1Object appends metav1.Object methods for a root type or its
+// metadata field type.
+func writeMetav1Object(b *strings.Builder, name string, st *ast.StructType, isRoot bool, structs map[string]*ast.StructType) {
+	methods := []struct {
+		method  string
+		retType string
+		args    string
+		call    string
+		field   string
+	}{
+		{method: "GetNamespace", retType: "string", field: "Namespace"},
+		{method: "SetNamespace", args: "namespace string", field: "Namespace"},
+		{method: "GetName", retType: "string", field: "Name"},
+		{method: "SetName", args: "name string", field: "Name"},
+		{method: "GetGenerateName", retType: "string", field: "GenerateName"},
+		{method: "SetGenerateName", args: "name string", field: "GenerateName"},
+		{method: "GetUID", retType: roTypesAlias + ".UID", field: "UID"},
+		{method: "SetUID", args: "uid " + roTypesAlias + ".UID", field: "UID"},
+		{method: "GetResourceVersion", retType: "string", field: "ResourceVersion"},
+		{method: "SetResourceVersion", args: "version string", field: "ResourceVersion"},
+		{method: "GetGeneration", retType: "int64", field: "Generation"},
+		{method: "SetGeneration", args: "generation int64", field: "Generation"},
+		{method: "GetSelfLink", retType: "string", field: "SelfLink"},
+		{method: "SetSelfLink", args: "selfLink string", field: "SelfLink"},
+		{method: "GetCreationTimestamp", retType: roMetaAlias + ".Time", field: "CreationTimestamp"},
+		{method: "SetCreationTimestamp", args: "timestamp " + roMetaAlias + ".Time", field: "CreationTimestamp"},
+		{method: "GetDeletionTimestamp", retType: "*" + roMetaAlias + ".Time", field: "DeletionTimestamp"},
+		{method: "SetDeletionTimestamp", args: "timestamp *" + roMetaAlias + ".Time", field: "DeletionTimestamp"},
+		{method: "GetDeletionGracePeriodSeconds", retType: "*int64", field: "DeletionGracePeriodSeconds"},
+		{method: "SetDeletionGracePeriodSeconds", args: "gracePeriodSeconds *int64", field: "DeletionGracePeriodSeconds"},
+		{method: "GetLabels", retType: "map[string]string", field: "Labels"},
+		{method: "SetLabels", args: "labels map[string]string", field: "Labels"},
+		{method: "GetAnnotations", retType: "map[string]string", field: "Annotations"},
+		{method: "SetAnnotations", args: "annotations map[string]string", field: "Annotations"},
+		{method: "GetFinalizers", retType: "[]string", field: "Finalizers"},
+		{method: "SetFinalizers", args: "finalizers []string", field: "Finalizers"},
+		{method: "GetOwnerReferences", retType: "[]" + roMetaAlias + ".OwnerReference", field: "OwnerReferences"},
+		{method: "SetOwnerReferences", args: "refs []" + roMetaAlias + ".OwnerReference", field: "OwnerReferences"},
+		{method: "GetManagedFields", retType: "[]" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields"},
+		{method: "SetManagedFields", args: "fields []" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields"},
+	}
+
+	for _, m := range methods {
+		if m.retType != "" {
+			fmt.Fprintf(b, "\nfunc (in *%s) %s() %s {\n", name, m.method, m.retType)
+		} else {
+			fmt.Fprintf(b, "\nfunc (in *%s) %s(%s) {\n", name, m.method, m.args)
+		}
+
+		if isRoot {
+			b.WriteString("\tif in.Metadata == nil { return")
+			if m.retType != "" {
+				b.WriteString(" " + zeroValue(m.retType))
+			}
+			b.WriteString(" }\n")
+			if m.retType != "" {
+				fmt.Fprintf(b, "\treturn in.Metadata.%s()\n}\n", m.method)
+			} else {
+				argName := strings.Split(m.args, " ")[0]
+				fmt.Fprintf(b, "\tin.Metadata.%s(%s)\n}\n", m.method, argName)
+			}
+			continue
+		}
+
+		// Non-root: access fields directly.
+		hasField := hasField(st, m.field)
+		if m.retType != "" {
+			if !hasField {
+				fmt.Fprintf(b, "\treturn %s\n}\n", zeroValue(m.retType))
+				continue
+			}
+			// Special handling for different types.
+			switch {
+			case m.method == "GetLabels" || m.method == "GetAnnotations" || m.method == "GetFinalizers":
+				b.WriteString("\tif in." + m.field + " == nil { return nil }\n")
+				b.WriteString("\treturn *in." + m.field + "\n}\n")
+			case strings.HasPrefix(m.retType, "[]") || strings.HasPrefix(m.retType, "*"):
+				// Complex types (OwnerReferences, ManagedFields, DeletionTimestamp):
+				// return nil unless the local type matches or we can convert it.
+				// For now, we return nil to ensure it compiles if types differ.
+				// In practice, these fields often have custom types in generated models.
+				fmt.Fprintf(b, "\treturn nil // field %s present but type conversion not supported\n}\n", m.field)
+			case m.retType == roMetaAlias+".Time":
+				fmt.Fprintf(b, "\treturn %s.Time{} // field %s present but type conversion not supported\n}\n", roMetaAlias, m.field)
+			default:
+				b.WriteString("\tif in." + m.field + " == nil { return " + zeroValue(m.retType) + " }\n")
+				fmt.Fprintf(b, "\treturn %s(*in.%s)\n}\n", m.retType, m.field)
+			}
+		} else {
+			if !hasField {
+				b.WriteString("}\n")
+				continue
+			}
+			argName := strings.Split(m.args, " ")[0]
+			// Setters: only set if types match.
+			fieldType := fieldElemTypeName(st, m.field)
+			if fieldType == "string" || strings.Contains(m.args, fieldType) {
+				argCast := argName
+				if fieldType != "string" && !strings.Contains(m.args, fieldType) {
+					argCast = fmt.Sprintf("%s(%s)", fieldType, argName)
+				}
+				fmt.Fprintf(b, "\tv := %s\n", argCast)
+				fmt.Fprintf(b, "\tin.%s = &v\n}\n", m.field)
+			} else {
+				b.WriteString("}\n")
+			}
+		}
+	}
+}
+
+func zeroValue(t string) string {
+	switch {
+	case t == "string":
+		return `""`
+	case t == "int64":
+		return "0"
+	case strings.HasPrefix(t, "map["), strings.HasPrefix(t, "[]"), strings.HasPrefix(t, "*"):
+		return "nil"
+	case strings.Contains(t, roTypesAlias+".UID"):
+		return `""`
+	case strings.Contains(t, roMetaAlias+".Time"):
+		return roMetaAlias + ".Time{}"
+	default:
+		return "nil"
+	}
+}
+
+// hasField reports whether the struct has a field with the given name.
+func hasField(st *ast.StructType, name string) bool {
+	for _, field := range st.Fields.List {
+		for _, n := range field.Names {
+			if n.Name == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // fieldElemTypeName returns the element type name of a pointer field (e.g. for
 // `APIVersion *FooAPIVersion` it returns "FooAPIVersion"; for `*string` it
 // returns "string"). Used to cast when setting the typed fields.
@@ -380,8 +538,11 @@ func fieldElemTypeName(st *ast.StructType, field string) string {
 				continue
 			}
 			if star, ok := f.Type.(*ast.StarExpr); ok {
-				if id, ok := star.X.(*ast.Ident); ok {
-					return id.Name
+				switch x := star.X.(type) {
+				case *ast.Ident:
+					return x.Name
+				case *ast.SelectorExpr:
+					return x.Sel.Name
 				}
 			}
 		}

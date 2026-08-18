@@ -122,6 +122,80 @@ type FooList struct {
 				"FooSpec.DeepCopyObject",
 			},
 		},
+		"Metav1Object": {
+			reason: "root structs and their metadata types get metav1.Object methods",
+			input: `package v1alpha1
+
+type Foo struct {
+	APIVersion *string     ` + "`json:\"apiVersion,omitempty\"`" + `
+	Kind       *string     ` + "`json:\"kind,omitempty\"`" + `
+	Metadata   *ObjectMeta ` + "`json:\"metadata,omitempty\"`" + `
+}
+
+type ObjectMeta struct {
+	Name *string ` + "`json:\"name,omitempty\"`" + `
+}
+`,
+			wantHasRoots: true,
+			wantMethods: []string{
+				"Foo.GetName", "Foo.SetName", "Foo.GetNamespace", "Foo.SetNamespace",
+				"Foo.GetUID", "Foo.GetGeneration",
+				"ObjectMeta.GetName", "ObjectMeta.SetName", "ObjectMeta.GetNamespace", "ObjectMeta.SetNamespace",
+				"ObjectMeta.GetUID", "ObjectMeta.GetGeneration",
+			},
+		},
+		"Metav1ObjectList": {
+			reason: "root list structs get runtime.Object but NOT metav1.Object methods; their metadata (ListMeta) also doesn't",
+			input: `package v1alpha1
+
+type Foo struct {
+	APIVersion *string     ` + "`json:\"apiVersion,omitempty\"`" + `
+	Kind       *string     ` + "`json:\"kind,omitempty\"`" + `
+	Metadata   *ObjectMeta ` + "`json:\"metadata,omitempty\"`" + `
+}
+
+type FooList struct {
+	APIVersion *string     ` + "`json:\"apiVersion,omitempty\"`" + `
+	Kind       *string     ` + "`json:\"kind,omitempty\"`" + `
+	Metadata   *ListMeta   ` + "`json:\"metadata,omitempty\"`" + `
+	Items      *[]Foo      ` + "`json:\"items,omitempty\"`" + `
+}
+
+type ObjectMeta struct {
+	Name *string ` + "`json:\"name,omitempty\"`" + `
+}
+
+type ListMeta struct {
+	ResourceVersion *string ` + "`json:\"resourceVersion,omitempty\"`" + `
+}
+`,
+			wantHasRoots: true,
+			wantMethods: []string{
+				"Foo.GetName", "Foo.SetName",
+				"FooList.DeepCopyObject", "FooList.GetObjectKind",
+			},
+			notMethods: []string{
+				"FooList.GetName", "FooList.SetName", "FooList.GetNamespace", "FooList.SetNamespace",
+				"ListMeta.GetName", "ListMeta.SetName",
+			},
+		},
+		"SelectorMetadata": {
+			reason: "metadata types referenced via selector should still be identified as metadata types",
+			input: `package v1alpha1
+
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+type Foo struct {
+	APIVersion *string            ` + "`json:\"apiVersion,omitempty\"`" + `
+	Kind       *string            ` + "`json:\"kind,omitempty\"`" + `
+	Metadata   *metav1.ObjectMeta ` + "`json:\"metadata,omitempty\"`" + `
+}
+`,
+			wantHasRoots: true,
+			wantMethods: []string{
+				"Foo.GetName", "Foo.SetName",
+			},
+		},
 	}
 
 	for name, tc := range cases {
