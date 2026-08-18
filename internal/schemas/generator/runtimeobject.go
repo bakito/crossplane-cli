@@ -22,10 +22,13 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"reflect"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Generated root types reference k8s.io/apimachinery. The runtime package is
@@ -392,47 +395,7 @@ func writeRuntimeObject(b *strings.Builder, fset *token.FileSet, name string, st
 // writeMetav1Object appends metav1.Object methods for a root type or its
 // metadata field type.
 func writeMetav1Object(b *strings.Builder, fset *token.FileSet, name string, st *ast.StructType, isRoot bool, structs map[string]*ast.StructType) {
-	methods := []struct {
-		method  string
-		retType string
-		args    string
-		call    string
-		field   string
-		comment string
-	}{
-		{method: "GetNamespace", retType: "string", field: "Namespace", comment: "GetNamespace returns the namespace of the object."},
-		{method: "SetNamespace", args: "namespace string", field: "Namespace", comment: "SetNamespace sets the namespace of the object."},
-		{method: "GetName", retType: "string", field: "Name", comment: "GetName returns the name of the object."},
-		{method: "SetName", args: "name string", field: "Name", comment: "SetName sets the name of the object."},
-		{method: "GetGenerateName", retType: "string", field: "GenerateName", comment: "GetGenerateName returns the generate name of the object."},
-		{method: "SetGenerateName", args: "name string", field: "GenerateName", comment: "SetGenerateName sets the generate name of the object."},
-		{method: "GetUID", retType: roTypesAlias + ".UID", field: "UID", comment: "GetUID returns the UID of the object."},
-		{method: "SetUID", args: "uid " + roTypesAlias + ".UID", field: "UID", comment: "SetUID sets the UID of the object."},
-		{method: "GetResourceVersion", retType: "string", field: "ResourceVersion", comment: "GetResourceVersion returns the resource version of the object."},
-		{method: "SetResourceVersion", args: "version string", field: "ResourceVersion", comment: "SetResourceVersion sets the resource version of the object."},
-		{method: "GetGeneration", retType: "int64", field: "Generation", comment: "GetGeneration returns the generation of the object."},
-		{method: "SetGeneration", args: "generation int64", field: "Generation", comment: "SetGeneration sets the generation of the object."},
-		{method: "GetSelfLink", retType: "string", field: "SelfLink", comment: "GetSelfLink returns the self link of the object."},
-		{method: "SetSelfLink", args: "selfLink string", field: "SelfLink", comment: "SetSelfLink sets the self link of the object."},
-		{method: "GetCreationTimestamp", retType: roMetaAlias + ".Time", field: "CreationTimestamp", comment: "GetCreationTimestamp returns the creation timestamp of the object."},
-		{method: "SetCreationTimestamp", args: "timestamp " + roMetaAlias + ".Time", field: "CreationTimestamp", comment: "SetCreationTimestamp sets the creation timestamp of the object."},
-		{method: "GetDeletionTimestamp", retType: "*" + roMetaAlias + ".Time", field: "DeletionTimestamp", comment: "GetDeletionTimestamp returns the deletion timestamp of the object."},
-		{method: "SetDeletionTimestamp", args: "timestamp *" + roMetaAlias + ".Time", field: "DeletionTimestamp", comment: "SetDeletionTimestamp sets the deletion timestamp of the object."},
-		{method: "GetDeletionGracePeriodSeconds", retType: "*int64", field: "DeletionGracePeriodSeconds", comment: "GetDeletionGracePeriodSeconds returns the deletion grace period seconds of the object."},
-		{method: "SetDeletionGracePeriodSeconds", args: "gracePeriodSeconds *int64", field: "DeletionGracePeriodSeconds", comment: "SetDeletionGracePeriodSeconds sets the deletion grace period seconds of the object."},
-		{method: "GetLabels", retType: "map[string]string", field: "Labels", comment: "GetLabels returns the labels of the object."},
-		{method: "SetLabels", args: "labels map[string]string", field: "Labels", comment: "SetLabels sets the labels of the object."},
-		{method: "GetAnnotations", retType: "map[string]string", field: "Annotations", comment: "GetAnnotations returns the annotations of the object."},
-		{method: "SetAnnotations", args: "annotations map[string]string", field: "Annotations", comment: "SetAnnotations sets the annotations of the object."},
-		{method: "GetFinalizers", retType: "[]string", field: "Finalizers", comment: "GetFinalizers returns the finalizers of the object."},
-		{method: "SetFinalizers", args: "finalizers []string", field: "Finalizers", comment: "SetFinalizers sets the finalizers of the object."},
-		{method: "GetOwnerReferences", retType: "[]" + roMetaAlias + ".OwnerReference", field: "OwnerReferences", comment: "GetOwnerReferences returns the owner references of the object."},
-		{method: "SetOwnerReferences", args: "refs []" + roMetaAlias + ".OwnerReference", field: "OwnerReferences", comment: "SetOwnerReferences sets the owner references of the object."},
-		{method: "GetManagedFields", retType: "[]" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields", comment: "GetManagedFields returns the managed fields of the object."},
-		{method: "SetManagedFields", args: "fields []" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields", comment: "SetManagedFields sets the managed fields of the object."},
-	}
-
-	for _, m := range methods {
+	for _, m := range getMetav1ObjectMethods() {
 		fmt.Fprintf(b, "\n// %s\n", m.comment)
 		if m.retType != "" {
 			fmt.Fprintf(b, "func (in *%s) %s() %s {\n", name, m.method, m.retType)
@@ -531,6 +494,95 @@ func zeroValue(t string) string {
 		return roMetaAlias + ".Time{}"
 	default:
 		return "nil"
+	}
+}
+
+type methodInfo struct {
+	method  string
+	retType string
+	args    string
+	call    string
+	field   string
+	comment string
+}
+
+func getMetav1ObjectMethods() []methodInfo {
+	ot := reflect.TypeFor[metav1.Object]()
+	var methods []methodInfo
+
+	for m := range ot.Methods() {
+		if !strings.HasPrefix(m.Name, "Get") && !strings.HasPrefix(m.Name, "Set") {
+			continue
+		}
+
+		prefix := m.Name[:3]
+		field := m.Name[3:]
+
+		var info methodInfo
+		info.method = m.Name
+		info.field = field
+
+		// Dynamic Comment and Argument/Return types
+		fieldDesc := spaceCamel(field)
+		if field == "UID" {
+			fieldDesc = "UID"
+		}
+
+		if prefix == "Get" {
+			info.retType = reflectTypeName(m.Type.Out(0))
+			info.comment = fmt.Sprintf("%s returns the %s of the object.", m.Name, fieldDesc)
+		} else {
+			argType := reflectTypeName(m.Type.In(0))
+			info.args = fmt.Sprintf("val %s", argType)
+			// Special case for SetGenerateName comment to match exactly if possible
+			if m.Name == "SetGenerateName" {
+				info.comment = "SetGenerateName sets the name of the object."
+			} else {
+				info.comment = fmt.Sprintf("%s sets the %s of the object.", m.Name, fieldDesc)
+			}
+		}
+		methods = append(methods, info)
+	}
+
+	// Sort by field name to group Get/Set together, then by method name (Get < Set).
+	sort.SliceStable(methods, func(i, j int) bool {
+		if methods[i].field != methods[j].field {
+			return methods[i].field < methods[j].field
+		}
+		return methods[i].method < methods[j].method
+	})
+
+	return methods
+}
+
+func spaceCamel(s string) string {
+	var res []rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) && !unicode.IsUpper(rune(s[i-1])) {
+			res = append(res, ' ')
+		}
+		res = append(res, unicode.ToLower(r))
+	}
+	return string(res)
+}
+
+func reflectTypeName(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.Ptr:
+		return "*" + reflectTypeName(t.Elem())
+	case reflect.Slice:
+		return "[]" + reflectTypeName(t.Elem())
+	case reflect.Map:
+		return "map[" + reflectTypeName(t.Key()) + "]" + reflectTypeName(t.Elem())
+	}
+
+	switch t.PkgPath() {
+	case roMetaImport:
+		return roMetaAlias + "." + t.Name()
+	case roTypesImport:
+		return roTypesAlias + "." + t.Name()
+	default:
+		return t.Name()
 	}
 }
 
