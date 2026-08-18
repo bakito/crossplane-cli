@@ -398,44 +398,46 @@ func writeMetav1Object(b *strings.Builder, fset *token.FileSet, name string, st 
 		args    string
 		call    string
 		field   string
+		comment string
 	}{
-		{method: "GetNamespace", retType: "string", field: "Namespace"},
-		{method: "SetNamespace", args: "namespace string", field: "Namespace"},
-		{method: "GetName", retType: "string", field: "Name"},
-		{method: "SetName", args: "name string", field: "Name"},
-		{method: "GetGenerateName", retType: "string", field: "GenerateName"},
-		{method: "SetGenerateName", args: "name string", field: "GenerateName"},
-		{method: "GetUID", retType: roTypesAlias + ".UID", field: "UID"},
-		{method: "SetUID", args: "uid " + roTypesAlias + ".UID", field: "UID"},
-		{method: "GetResourceVersion", retType: "string", field: "ResourceVersion"},
-		{method: "SetResourceVersion", args: "version string", field: "ResourceVersion"},
-		{method: "GetGeneration", retType: "int64", field: "Generation"},
-		{method: "SetGeneration", args: "generation int64", field: "Generation"},
-		{method: "GetSelfLink", retType: "string", field: "SelfLink"},
-		{method: "SetSelfLink", args: "selfLink string", field: "SelfLink"},
-		{method: "GetCreationTimestamp", retType: roMetaAlias + ".Time", field: "CreationTimestamp"},
-		{method: "SetCreationTimestamp", args: "timestamp " + roMetaAlias + ".Time", field: "CreationTimestamp"},
-		{method: "GetDeletionTimestamp", retType: "*" + roMetaAlias + ".Time", field: "DeletionTimestamp"},
-		{method: "SetDeletionTimestamp", args: "timestamp *" + roMetaAlias + ".Time", field: "DeletionTimestamp"},
-		{method: "GetDeletionGracePeriodSeconds", retType: "*int64", field: "DeletionGracePeriodSeconds"},
-		{method: "SetDeletionGracePeriodSeconds", args: "gracePeriodSeconds *int64", field: "DeletionGracePeriodSeconds"},
-		{method: "GetLabels", retType: "map[string]string", field: "Labels"},
-		{method: "SetLabels", args: "labels map[string]string", field: "Labels"},
-		{method: "GetAnnotations", retType: "map[string]string", field: "Annotations"},
-		{method: "SetAnnotations", args: "annotations map[string]string", field: "Annotations"},
-		{method: "GetFinalizers", retType: "[]string", field: "Finalizers"},
-		{method: "SetFinalizers", args: "finalizers []string", field: "Finalizers"},
-		{method: "GetOwnerReferences", retType: "[]" + roMetaAlias + ".OwnerReference", field: "OwnerReferences"},
-		{method: "SetOwnerReferences", args: "refs []" + roMetaAlias + ".OwnerReference", field: "OwnerReferences"},
-		{method: "GetManagedFields", retType: "[]" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields"},
-		{method: "SetManagedFields", args: "fields []" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields"},
+		{method: "GetNamespace", retType: "string", field: "Namespace", comment: "GetNamespace returns the namespace of the object."},
+		{method: "SetNamespace", args: "namespace string", field: "Namespace", comment: "SetNamespace sets the namespace of the object."},
+		{method: "GetName", retType: "string", field: "Name", comment: "GetName returns the name of the object."},
+		{method: "SetName", args: "name string", field: "Name", comment: "SetName sets the name of the object."},
+		{method: "GetGenerateName", retType: "string", field: "GenerateName", comment: "GetGenerateName returns the generate name of the object."},
+		{method: "SetGenerateName", args: "name string", field: "GenerateName", comment: "SetGenerateName sets the generate name of the object."},
+		{method: "GetUID", retType: roTypesAlias + ".UID", field: "UID", comment: "GetUID returns the UID of the object."},
+		{method: "SetUID", args: "uid " + roTypesAlias + ".UID", field: "UID", comment: "SetUID sets the UID of the object."},
+		{method: "GetResourceVersion", retType: "string", field: "ResourceVersion", comment: "GetResourceVersion returns the resource version of the object."},
+		{method: "SetResourceVersion", args: "version string", field: "ResourceVersion", comment: "SetResourceVersion sets the resource version of the object."},
+		{method: "GetGeneration", retType: "int64", field: "Generation", comment: "GetGeneration returns the generation of the object."},
+		{method: "SetGeneration", args: "generation int64", field: "Generation", comment: "SetGeneration sets the generation of the object."},
+		{method: "GetSelfLink", retType: "string", field: "SelfLink", comment: "GetSelfLink returns the self link of the object."},
+		{method: "SetSelfLink", args: "selfLink string", field: "SelfLink", comment: "SetSelfLink sets the self link of the object."},
+		{method: "GetCreationTimestamp", retType: roMetaAlias + ".Time", field: "CreationTimestamp", comment: "GetCreationTimestamp returns the creation timestamp of the object."},
+		{method: "SetCreationTimestamp", args: "timestamp " + roMetaAlias + ".Time", field: "CreationTimestamp", comment: "SetCreationTimestamp sets the creation timestamp of the object."},
+		{method: "GetDeletionTimestamp", retType: "*" + roMetaAlias + ".Time", field: "DeletionTimestamp", comment: "GetDeletionTimestamp returns the deletion timestamp of the object."},
+		{method: "SetDeletionTimestamp", args: "timestamp *" + roMetaAlias + ".Time", field: "DeletionTimestamp", comment: "SetDeletionTimestamp sets the deletion timestamp of the object."},
+		{method: "GetDeletionGracePeriodSeconds", retType: "*int64", field: "DeletionGracePeriodSeconds", comment: "GetDeletionGracePeriodSeconds returns the deletion grace period seconds of the object."},
+		{method: "SetDeletionGracePeriodSeconds", args: "gracePeriodSeconds *int64", field: "DeletionGracePeriodSeconds", comment: "SetDeletionGracePeriodSeconds sets the deletion grace period seconds of the object."},
+		{method: "GetLabels", retType: "map[string]string", field: "Labels", comment: "GetLabels returns the labels of the object."},
+		{method: "SetLabels", args: "labels map[string]string", field: "Labels", comment: "SetLabels sets the labels of the object."},
+		{method: "GetAnnotations", retType: "map[string]string", field: "Annotations", comment: "GetAnnotations returns the annotations of the object."},
+		{method: "SetAnnotations", args: "annotations map[string]string", field: "Annotations", comment: "SetAnnotations sets the annotations of the object."},
+		{method: "GetFinalizers", retType: "[]string", field: "Finalizers", comment: "GetFinalizers returns the finalizers of the object."},
+		{method: "SetFinalizers", args: "finalizers []string", field: "Finalizers", comment: "SetFinalizers sets the finalizers of the object."},
+		{method: "GetOwnerReferences", retType: "[]" + roMetaAlias + ".OwnerReference", field: "OwnerReferences", comment: "GetOwnerReferences returns the owner references of the object."},
+		{method: "SetOwnerReferences", args: "refs []" + roMetaAlias + ".OwnerReference", field: "OwnerReferences", comment: "SetOwnerReferences sets the owner references of the object."},
+		{method: "GetManagedFields", retType: "[]" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields", comment: "GetManagedFields returns the managed fields of the object."},
+		{method: "SetManagedFields", args: "fields []" + roMetaAlias + ".ManagedFieldsEntry", field: "ManagedFields", comment: "SetManagedFields sets the managed fields of the object."},
 	}
 
 	for _, m := range methods {
+		fmt.Fprintf(b, "\n// %s\n", m.comment)
 		if m.retType != "" {
-			fmt.Fprintf(b, "\nfunc (in *%s) %s() %s {\n", name, m.method, m.retType)
+			fmt.Fprintf(b, "func (in *%s) %s() %s {\n", name, m.method, m.retType)
 		} else {
-			fmt.Fprintf(b, "\nfunc (in *%s) %s(%s) {\n", name, m.method, m.args)
+			fmt.Fprintf(b, "func (in *%s) %s(%s) {\n", name, m.method, m.args)
 		}
 
 		if isRoot {
