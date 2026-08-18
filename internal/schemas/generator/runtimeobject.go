@@ -82,7 +82,7 @@ func addRuntimeObjects(code string) (string, bool, error) {
 	metadataTypes := map[string]bool{"ObjectMeta": true}
 	for name, st := range structs {
 		if isRootStruct(st) && !hasField(st, "Items") && name != "Status" {
-			metadataTypes[fieldElemTypeName(st, "Metadata")] = true
+			metadataTypes[fieldElemTypeName(fset, st, "Metadata")] = true
 		}
 	}
 
@@ -107,12 +107,12 @@ func addRuntimeObjects(code string) (string, bool, error) {
 			writeDeepCopy(&b, fset, name, st, structs, aliases)
 			if isRootStruct(st) {
 				hasRoots = true
-				writeRuntimeObject(&b, name, st)
+				writeRuntimeObject(&b, fset, name, st)
 				if !hasField(st, "Items") && name != "Status" {
-					writeMetav1Object(&b, name, st, true, structs)
+					writeMetav1Object(&b, fset, name, st, true, structs)
 				}
 			} else if metadataTypes[name] {
-				writeMetav1Object(&b, name, st, false, structs)
+				writeMetav1Object(&b, fset, name, st, false, structs)
 			}
 		}
 	}
@@ -352,7 +352,7 @@ func writeMapCopy(b *strings.Builder, fset *token.FileSet, declType string, m *a
 
 // writeRuntimeObject appends runtime.Object + schema.ObjectKind methods and a
 // scheme-registering init() for a root type.
-func writeRuntimeObject(b *strings.Builder, name string, st *ast.StructType) {
+func writeRuntimeObject(b *strings.Builder, fset *token.FileSet, name string, st *ast.StructType) {
 	// DeepCopyObject.
 	fmt.Fprintf(b, "\n// DeepCopyObject returns a deep copy of the receiver as a runtime.Object.\n")
 	fmt.Fprintf(b, "func (in *%s) DeepCopyObject() %s.Object {\n", name, roRuntimeAlias)
@@ -362,8 +362,8 @@ func writeRuntimeObject(b *strings.Builder, name string, st *ast.StructType) {
 	fmt.Fprintf(b, "\n// GetObjectKind implements runtime.Object.\n")
 	fmt.Fprintf(b, "func (in *%s) GetObjectKind() schema.ObjectKind { return in }\n", name)
 
-	apiVersionType := fieldElemTypeName(st, "APIVersion")
-	kindType := fieldElemTypeName(st, "Kind")
+	apiVersionType := fieldElemTypeName(fset, st, "APIVersion")
+	kindType := fieldElemTypeName(fset, st, "Kind")
 
 	// GroupVersionKind reads the typed APIVersion/Kind fields.
 	fmt.Fprintf(b, "\n// GroupVersionKind implements schema.ObjectKind.\n")
@@ -391,7 +391,7 @@ func writeRuntimeObject(b *strings.Builder, name string, st *ast.StructType) {
 
 // writeMetav1Object appends metav1.Object methods for a root type or its
 // metadata field type.
-func writeMetav1Object(b *strings.Builder, name string, st *ast.StructType, isRoot bool, structs map[string]*ast.StructType) {
+func writeMetav1Object(b *strings.Builder, fset *token.FileSet, name string, st *ast.StructType, isRoot bool, structs map[string]*ast.StructType) {
 	methods := []struct {
 		method  string
 		retType string
@@ -483,17 +483,33 @@ func writeMetav1Object(b *strings.Builder, name string, st *ast.StructType, isRo
 				continue
 			}
 			argName := strings.Split(m.args, " ")[0]
+			argType := strings.Split(m.args, " ")[1]
+
 			// Setters: only set if types match.
-			fieldType := fieldElemTypeName(st, m.field)
-			if fieldType == "string" || strings.Contains(m.args, fieldType) {
-				argCast := argName
-				if fieldType != "string" && !strings.Contains(m.args, fieldType) {
-					argCast = fmt.Sprintf("%s(%s)", fieldType, argName)
+			fieldType := fieldElemTypeName(fset, st, m.field)
+
+			// Check if we supported this type in Getter
+			if strings.HasPrefix(m.retType, "[]") || strings.HasPrefix(m.retType, "*") || m.retType == roMetaAlias+".Time" {
+				// For now, no-op for setters where type conversion is not supported
+				fmt.Fprintf(b, "\t// field %s present but type conversion not supported\n}\n", m.field)
+				continue
+			}
+
+			if (fieldType == "string" || fieldType == "int64") || argType == fieldType || argType == "*"+fieldType {
+				if strings.HasPrefix(argType, "*") {
+					fmt.Fprintf(b, "\tin.%s = %s\n}\n", m.field, argName)
+				} else {
+					argCast := argName
+					if fieldType == "string" && argType != "string" {
+						argCast = fmt.Sprintf("string(%s)", argName)
+					} else if fieldType == "int64" && argType != "int64" {
+						argCast = fmt.Sprintf("int64(%s)", argName)
+					}
+					fmt.Fprintf(b, "\tv := %s\n", argCast)
+					fmt.Fprintf(b, "\tin.%s = &v\n}\n", m.field)
 				}
-				fmt.Fprintf(b, "\tv := %s\n", argCast)
-				fmt.Fprintf(b, "\tin.%s = &v\n}\n", m.field)
 			} else {
-				b.WriteString("}\n")
+				fmt.Fprintf(b, "\t// field %s present but type %s not compatible with %s\n}\n", m.field, argType, fieldType)
 			}
 		}
 	}
@@ -531,20 +547,16 @@ func hasField(st *ast.StructType, name string) bool {
 // fieldElemTypeName returns the element type name of a pointer field (e.g. for
 // `APIVersion *FooAPIVersion` it returns "FooAPIVersion"; for `*string` it
 // returns "string"). Used to cast when setting the typed fields.
-func fieldElemTypeName(st *ast.StructType, field string) string {
+func fieldElemTypeName(fset *token.FileSet, st *ast.StructType, field string) string {
 	for _, f := range st.Fields.List {
 		for _, n := range f.Names {
 			if n.Name != field {
 				continue
 			}
 			if star, ok := f.Type.(*ast.StarExpr); ok {
-				switch x := star.X.(type) {
-				case *ast.Ident:
-					return x.Name
-				case *ast.SelectorExpr:
-					return x.Sel.Name
-				}
+				return renderType(fset, star.X)
 			}
+			return renderType(fset, f.Type)
 		}
 	}
 	return "string"
