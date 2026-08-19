@@ -430,14 +430,21 @@ func writeMetav1Object(b *strings.Builder, fset *token.FileSet, name string, st 
 			case m.method == "GetLabels" || m.method == "GetAnnotations" || m.method == "GetFinalizers":
 				b.WriteString("\tif in." + m.field + " == nil { return nil }\n")
 				b.WriteString("\treturn *in." + m.field + "\n}\n")
-			case strings.HasPrefix(m.retType, "[]") || strings.HasPrefix(m.retType, "*"):
+			case m.retType == roMetaAlias+".Time":
+				b.WriteString("\tif in." + m.field + " == nil { return " + zeroValue(m.retType) + " }\n")
+				fmt.Fprintf(b, "\treturn %s.Time{Time: *in.%s}\n}\n", roMetaAlias, m.field)
+			case m.retType == "*"+roMetaAlias+".Time":
+				b.WriteString("\tif in." + m.field + " == nil { return nil }\n")
+				fmt.Fprintf(b, "\treturn &%s.Time{Time: *in.%s}\n}\n", roMetaAlias, m.field)
+			case strings.HasPrefix(m.retType, "[]") || strings.HasPrefix(m.retType, "*[]"):
 				// Complex types (OwnerReferences, ManagedFields, DeletionTimestamp):
 				// return nil unless the local type matches or we can convert it.
 				// For now, we return nil to ensure it compiles if types differ.
 				// In practice, these fields often have custom types in generated models.
 				fmt.Fprintf(b, "\treturn nil // field %s present but type conversion not supported\n}\n", m.field)
-			case m.retType == roMetaAlias+".Time":
-				fmt.Fprintf(b, "\treturn %s.Time{} // field %s present but type conversion not supported\n}\n", roMetaAlias, m.field)
+			case strings.HasPrefix(m.retType, "*"):
+				b.WriteString("\tif in." + m.field + " == nil { return nil }\n")
+				fmt.Fprintf(b, "\treturn in.%s\n}\n", m.field)
 			default:
 				b.WriteString("\tif in." + m.field + " == nil { return " + zeroValue(m.retType) + " }\n")
 				fmt.Fprintf(b, "\treturn %s(*in.%s)\n}\n", m.retType, m.field)
@@ -472,6 +479,13 @@ func writeMetav1Object(b *strings.Builder, fset *token.FileSet, name string, st 
 					}
 					fmt.Fprintf(b, "\tv := %s\n", argCast)
 					fmt.Fprintf(b, "\tin.%s = &v\n}\n", m.field)
+				}
+			} else if fieldType == "Time" {
+				if strings.HasPrefix(argType, "*") {
+					fmt.Fprintf(b, "\tif %s == nil {\n\t\tin.%s = nil\n\t\treturn\n}\n", argName, m.field)
+					fmt.Fprintf(b, "\tin.%s = &%s.Time\n}\n", m.field, argName)
+				} else {
+					fmt.Fprintf(b, "\tin.%s = &%s.Time\n}\n", m.field, argName)
 				}
 			} else {
 				fmt.Fprintf(b, "\t// field %s present but type %s not compatible with %s\n}\n", m.field, argType, fieldType)
