@@ -17,14 +17,14 @@ require (
 	github.com/crossplane/function-sdk-go v0.7.1
 	github.com/docker/cli v29.7.1+incompatible
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.7.0
+	github.com/docker/go-connections v0.8.1
 	github.com/emicklei/dot v1.11.0
-	github.com/getkin/kin-openapi v0.144.0
+	github.com/getkin/kin-openapi v0.147.0
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/gobuffalo/flect v1.0.3
 	github.com/google/go-cmp v0.7.0
-	github.com/google/go-containerregistry v0.21.7
+	github.com/google/go-containerregistry v0.21.9
 	github.com/google/ko v0.18.1
 	github.com/invopop/jsonschema v0.14.0
 	github.com/kubernetes-sigs/kro v0.9.2
@@ -181,7 +181,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/cel-go v0.29.0 // indirect
+	github.com/google/cel-go v0.30.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.3 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-containerregistry/pkg/authn/k8schain v0.0.0-20260312205200-e9163014982e // indirect
@@ -204,7 +204,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/klauspost/compress v1.18.7 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
@@ -222,8 +222,8 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/moby/moby/api v1.54.2 // indirect
-	github.com/moby/moby/client v0.4.1 // indirect
+	github.com/moby/moby/api v1.55.0 // indirect
+	github.com/moby/moby/client v0.5.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
